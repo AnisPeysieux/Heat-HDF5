@@ -6,4 +6,4 @@ Compilation:
 Cela creera un executable nomme heat.
 
 Executer avec mpirun, par exemple: mpirun -np 4 ./heat 100 50 50
-Cette execution generera un fichier heat.h5 contenu deux datasets.
+Cette execution generera un fichier heat.h5 contenant deux datasets.
