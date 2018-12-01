@@ -165,6 +165,71 @@ void parse_args( int argc, char *argv[], int *nb_iter, int dsize[2], MPI_Comm *c
 	MPI_Cart_create(MPI_COMM_WORLD, 2, psize, cart_period, 1, cart_comm);
 }
 
+int save_in_hdf5 (MPI_Comm cart_comm, char* filename, char* previous_name, char* last_name, int dsize[2], int pcoord[2], double(*previous)[], double(*last)[])
+{
+  assert(filename != NULL);
+  assert(previous_name != NULL);
+  assert(last_name != NULL);
+  assert(previous != NULL);
+  assert(last != NULL);
+  assert(strcmp(previous_name, last_name) != 0);
+
+  //Get dimensions of the communicator
+  int dims[2];
+  int periods[2];
+  int coords[2];
+  MPI_Cart_get(cart_comm, 2, dims, periods, coords);
+  
+  //Create access properties
+  hid_t plist_id_1 = H5Pcreate(H5P_FILE_ACCESS);
+  if(plist_id_1 == -1) { return -1; }
+  if(H5Pset_fapl_mpio(plist_id_1, MPI_COMM_WORLD, MPI_INFO_NULL) < 0) { return -1; }
+
+  //Create write properties
+  hid_t plist_id_2 = H5Pcreate(H5P_DATASET_XFER);
+  if(plist_id_2 == -1) { return -1; }
+  if(H5Pset_dxpl_mpio(plist_id_2, H5FD_MPIO_COLLECTIVE) < 0) { return -1; }
+  
+  //Create file
+  hid_t snapshot_file_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, plist_id_1);
+  if(snapshot_file_id < 0) { return -1; }
+
+  //Computing dataspace sizes
+  hsize_t dims_file[2] = {(dsize[0] - 2) * dims[0], (dsize[1] - 2) * dims[1]};
+  hsize_t dims_mem[2] = {dsize[0], dsize[1]};
+  //Create dataspaces
+  hid_t dataspace_file = H5Screate_simple(2, dims_file, NULL); if(dataspace_file < 0) { return -1; }
+  hid_t dataspace_mem = H5Screate_simple(2, dims_mem, NULL); if(dataspace_mem < 0) { return -1; }
+
+  //Computing slabs area
+  hsize_t start_mem[2] = {1, 1};
+  hsize_t count_mem[2] = {dsize[0] - 2, dsize[1] - 2};
+  hsize_t start_file[2] = {pcoord[0] * (dsize[0] - 2), pcoord[1] * (dsize[0] - 2)};
+  hsize_t count_file[2] = {dsize[0] - 2, dsize[1] - 2};
+  //Create slabs
+  if(H5Sselect_hyperslab(dataspace_mem, H5S_SELECT_SET, start_mem, NULL, count_mem, NULL) < 0) { return -1; }  
+  if(H5Sselect_hyperslab(dataspace_file, H5S_SELECT_SET, start_file, NULL, count_file, NULL) < 0) { return -1; }
+
+  //Creating datasets
+  hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if(dataset_previous < 0) { return -1; }
+  hid_t dataset_last = H5Dcreate(snapshot_file_id, last_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if(dataset_last < 0) { return -1; }
+
+  //Writing in datasets
+  if(H5Dwrite(dataset_previous, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, previous) < 0) { return -1; }
+  if(H5Dwrite(dataset_last, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, last) < 0) { return -1; }
+
+  //Closing ressources
+  if(H5Sclose(dataspace_file) < 0) { return -1; }
+  if(H5Sclose(dataspace_mem) < 0) { return -1; }
+  if(H5Dclose(dataset_previous) < 0) { return -1; }
+  if(H5Dclose(dataset_last) < 0) { return -1; }
+  if(H5Fclose(snapshot_file_id) < 0) { return -1; }
+
+  return 0;
+}
+
 int main( int argc, char* argv[] )
 {
 	// initialize the MPI library
@@ -197,107 +262,13 @@ int main( int argc, char* argv[] )
 		exchange(cart_comm, dsize, next);
         // switch the current and next buffers
 		double (*tmp)[dsize[1]] = cur; cur = next; next = tmp;
-//    if(ii == nb_iter - 1)
-//    {
-//
-//
-//    }		
 	}
-	
 
-  int rank_length_x = 0;
-  int rank_length_y = 0;
-  int nx = pcoord[0];
-  do
+  if(save_in_hdf5 (cart_comm, "heat.h5", "previous", "last", dsize, pcoord, next, cur) == -1)
   {
-    nx = nx/10;
-    rank_length_x++;
+    fprintf(stderr, "Error during save\n");
+    exit(EXIT_FAILURE);
   }
-  while(nx > 0);
-  
-  int ny = pcoord[1];
-  do
-  {
-    ny = ny/10;
-    rank_length_y++;
-  }
-  while(ny > 0);
-
-  char* snapshot_file_name = malloc((strlen("heatx.h5") + rank_length_x + rank_length_y + 1) * sizeof(char));
-  assert(snapshot_file_name != NULL);
-  
-  assert(snprintf(snapshot_file_name, strlen("heatx.h5") + rank_length_x + rank_length_y + 1, "heat%dx%d.h5", pcoord[0], pcoord[1]) == (strlen("heatx.h5") + rank_length_x + rank_length_y));
-  
-  //Two first versions
-  //hid_t snapshot_file_id = H5Fcreate(snapshot_file_name, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-  
-
-
-  //Third version
-  int dims[2];
-  int periods[2];
-  int coords[2];
-  MPI_Cart_get(cart_comm, 2, dims, periods, coords);
-  
-  hid_t plist_id_1 = H5Pcreate(H5P_FILE_ACCESS);
-  H5Pset_fapl_mpio(plist_id_1, MPI_COMM_WORLD, MPI_INFO_NULL);
-
-  hid_t plist_id_2 = H5Pcreate(H5P_DATASET_XFER);
-  H5Pset_dxpl_mpio(plist_id_2, H5FD_MPIO_COLLECTIVE);
-  
-  hid_t snapshot_file_id = H5Fcreate("heat.h5", H5F_ACC_TRUNC, H5P_DEFAULT, plist_id_1);
-  hsize_t dims_file[2] = {(dsize[0] - 2) * dims[0], (dsize[1] - 2) * dims[1]};
-  hsize_t dims_mem[2] = {dsize[0], dsize[1]};
-  hid_t dataspace_file = H5Screate_simple(2, dims_file, NULL);
-  hid_t dataspace_mem = H5Screate_simple(2, dims_mem, NULL);
-
-  hsize_t start_mem[2] = {1, 1};
-  hsize_t count_mem[2] = {dsize[0] - 2, dsize[1] - 2};
-  H5Sselect_hyperslab(dataspace_mem, H5S_SELECT_SET, start_mem, NULL, count_mem, NULL);
-  
-  hsize_t start_file[2] = {pcoord[0] * (dsize[0] - 2), pcoord[1] * (dsize[0] - 2)};
-  hsize_t count_file[2] = {dsize[0] - 2, dsize[1] - 2};
-  H5Sselect_hyperslab(dataspace_file, H5S_SELECT_SET, start_file, NULL, count_file, NULL);
-
-  hid_t dataset_previous = H5Dcreate(snapshot_file_id, "previous", H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  hid_t dataset_last = H5Dcreate(snapshot_file_id, "last", H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  
-  H5Dwrite(dataset_previous, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, cur);
-  H5Dwrite(dataset_last, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, next);
-
-  H5Sclose(dataspace_file);
-  H5Sclose(dataspace_mem);
-  H5Dclose(dataset_previous);
-  H5Dclose(dataset_last);
-  H5Fclose(snapshot_file_id);
-
-
-  //Second versions
-  // hsize_t dims_without_ghosts[2] = {dsize[0] - 2, dsize[1] - 2};
-  // hsize_t dims_with_ghosts[2] = {dsize[0], dsize[1]};
-  // hid_t dataspace_without_ghosts = H5Screate_simple(2, dims_without_ghosts, NULL);
-  // hid_t dataspace_with_ghosts = H5Screate_simple(2, dims_with_ghosts, NULL);
-
-  // hsize_t start[2] = {1, 1};
-  // hsize_t count[2] = {dsize[0] - 2, dsize[1] - 2};
-  // H5Sselect_hyperslab(dataspace_with_ghosts, H5S_SELECT_SET, start, NULL, count, NULL);
-
-  // hid_t dataset_previous = H5Dcreate(snapshot_file_id, "previous", H5T_IEEE_F64BE, dataspace_without_ghosts, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  // hid_t dataset_last = H5Dcreate(snapshot_file_id, "last", H5T_IEEE_F64BE, dataspace_without_ghosts, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  // 
-  // H5Dwrite(dataset_previous, H5T_IEEE_F64BE, dataspace_with_ghosts, dataspace_without_ghosts, H5P_DEFAULT, cur);
-  // H5Dwrite(dataset_last, H5T_IEEE_F64BE, dataspace_with_ghosts, dataspace_without_ghosts, H5P_DEFAULT, next);
-
-  // H5Sclose(dataspace_without_ghosts);
-  // H5Sclose(dataspace_with_ghosts);
-  // H5Dclose(dataset_previous);
-  // H5Dclose(dataset_last);
-
-  //First version
-  //hid_t dataset_id_last = H5Dcreate(snapshot_file_id, "last", H5T_IEEE_F64BE, dataspace_last, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  //H5LTmake_dataset_double (snapshot_file_id, "previous", 2, tab, (double*) cur);      
-  //H5LTmake_dataset_double (snapshot_file_id, "last", 2, tab, (double*) next);      
-
 
 	// free memory
 	free(cur);
