@@ -1,0 +1,6 @@
+Compilation:
+  mkdir build
+  cmake ..
+  make
+
+Executer avec mpirun, par exemple: mpirun -np 4 100 50 50
