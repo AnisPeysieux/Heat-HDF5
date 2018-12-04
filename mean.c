@@ -5,14 +5,32 @@
 #include <string.h>
 #include <assert.h>
 
+struct loaded_s
+{
+  int ndims;
+  hsize_t* dims;
+  void* buf;
+};
+typedef struct loaded_s loaded_t;
+
+void free_loaded(loaded_t* load)
+{
+  if(load -> dims != NULL)
+  {  
+    free(load -> dims);
+  }
+  if(load -> buf != NULL)
+  {
+    free(load -> buf);
+  }
+}
+
 int save_in_hdf5(hid_t file_id, char* filename, char* dataset_name, hsize_t dsize,double* buf)
 {
   assert(filename != NULL);
   assert(dataset_name != NULL);
   assert(buf != NULL);
   
-  //Create file
-
   //Create dataspaces
   hid_t dataspace = H5Screate_simple(1, &dsize, NULL); if(dataspace < 0) { return -2; }
 
@@ -31,95 +49,83 @@ int save_in_hdf5(hid_t file_id, char* filename, char* dataset_name, hsize_t dsiz
   return 0;
 }
 
+int read_dataset_hdf5(char* filename, char* dataset_name, loaded_t* load)
+{
+  hid_t file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  hid_t dset = H5Dopen (file_id, dataset_name, H5P_DEFAULT);
+  hid_t dspace = H5Dget_space(dset);
+  load -> ndims = H5Sget_simple_extent_ndims(dspace);
+  load -> dims = malloc(load -> ndims * sizeof(hsize_t));
+  H5Sget_simple_extent_dims(dspace, load -> dims, NULL);
+	load -> buf  = malloc(sizeof(double)*load->dims[1]*load->dims[0]);
+  H5Dread(dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, load -> buf);
+  H5Dclose(dset);
+  H5Fclose(file_id);
+}
+
 int main()
 {
 
-  char filename[] = "heat.h5";
-  hid_t last, previous;
-  
+  char input_filename[] = "heat.h5";
+  char output_filename[] = "diag.h5";
 
-  hid_t file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  loaded_t load;
+  read_dataset_hdf5(input_filename, "/last", &load);
+  if(load.ndims != 2) exit(EXIT_FAILURE);
   
-  hid_t last_dset = H5Dopen (file_id, "/last", H5P_DEFAULT);
-  hid_t last_dspace = H5Dget_space(last_dset);
-  const int last_ndims = H5Sget_simple_extent_ndims(last_dspace);
-  
-  printf("last dims: %d\n", last_ndims);
-  hsize_t* last_dims;
-  last_dims = malloc(last_ndims * sizeof(hsize_t));
-  H5Sget_simple_extent_dims(last_dspace, last_dims, NULL);
-  for(size_t i = 0; i < last_ndims; ++i)
-  {
-//    printf("\tdim %lu = %llu\n", i, last_dims[i]);
-  }
+  double(*buf)[load.dims[load.ndims - 1]] = load.buf;
 
-	double(*last_buf)[last_dims[1]]  = malloc(sizeof(double)*last_dims[1]*last_dims[0]);
-  H5Dread(last_dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,  last_buf);
-//  for(size_t row = 0; row < last_dims[0]; ++row)
-//  {
-//    for(size_t col = 0; col < last_dims[1]; ++col)
-//    {
-//      printf("%f ", last_buf[row][col]);
-//    }
-//    printf("\n");
-//  }
+  double mean = 0;
+  double* x_mean = malloc(load.dims[0] * sizeof(double));
+  memset(x_mean, 0, load.dims[0] * sizeof(double));
+  double* y_mean = malloc(load.dims[1] * sizeof(double));
+  memset(y_mean, 0, load.dims[1] * sizeof(double));
 
-  double last_mean = 0;
-  double* last_mean_rows = malloc(last_dims[0] * sizeof(double));
-  memset(last_mean_rows, 0, last_dims[0] * sizeof(double));
-  double* last_mean_cols = malloc(last_dims[1] * sizeof(double));
-  memset(last_mean_cols, 0, last_dims[1] * sizeof(double));
-  for(size_t row = 0; row < last_dims[0]; ++row)
+  for(size_t row = 0; row < load.dims[0]; ++row)
   {
     
-    for(size_t col = 0; col < last_dims[1]; ++col)
+    for(size_t col = 0; col < load.dims[1]; ++col)
     {
-      last_mean_rows[row] += last_buf[row][col];
-      last_mean_cols[col] += last_buf[row][col];
-      last_mean += last_buf[row][col];
+      x_mean[row] += buf[row][col];
+      y_mean[col] += buf[row][col];
+      mean += buf[row][col];
     }
+    x_mean[row] /= load.dims[1];
   }
-  for(size_t row = 0; row < last_dims[0]; ++row)
+  for(size_t col = 0; col < load.dims[1]; ++col)
   {
-    last_mean_rows[row] /= last_dims[1];
+    y_mean[col] /= load.dims[0];
   }
-  for(size_t col = 0; col < last_dims[1]; ++col)
-  {
-    last_mean_cols[col] /= last_dims[0];
-  }
-  last_mean /= last_dims[0] * last_dims[1];
+  mean /= load.dims[0] * load.dims[1];
 
-  printf("mean row:\n");
-  for(size_t row = 0; row < last_dims[0]; ++row)
+  printf("x_mean:\n");
+  for(size_t row = 0; row < load.dims[0]; ++row)
   {
-    printf("%f ", last_mean_rows[row]);
+    printf("%f ", x_mean[row]);
   }
   printf("\n");
-  printf("mean col:\n");
-  for(size_t col = 0; col < last_dims[1]; ++col)
+  printf("y_mean:\n");
+  for(size_t col = 0; col < load.dims[1]; ++col)
   {
-    printf("%f ", last_mean_cols[col]);
+    printf("%f ", y_mean[col]);
   }
   printf("\n");
-  printf("mean: %f\n", last_mean);
+  printf("mean: %f\n", mean);
 
 
-  hid_t file_id_2 = H5Fcreate("diag.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t file_id = H5Fcreate(input_filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if(file_id < 0) { return -1; }
-  int ret_save_1 = save_in_hdf5 (file_id_2, "diag.h5", "/x_mean", last_dims[0], last_mean_rows);
-  int ret_save_2 = save_in_hdf5 (file_id_2, "diag.h5", "/y_mean", last_dims[1], last_mean_cols);
-  int ret_save_3 = save_in_hdf5 (file_id_2, "diag.h5", "/mean", 1, &last_mean);
+  int ret_save_1 = save_in_hdf5 (file_id, output_filename, "/x_mean", load.dims[0], x_mean);
+  int ret_save_2 = save_in_hdf5 (file_id, output_filename, "/y_mean", load.dims[1], y_mean);
+  int ret_save_3 = save_in_hdf5 (file_id, output_filename, "/mean", 1, &mean);
   printf("%d\n", ret_save_1);
   printf("%d\n", ret_save_2);
   printf("%d\n", ret_save_3);
 
-  
-  free(last_mean_rows);
-  free(last_mean_cols);
-  free(last_buf);
-  H5Dclose(last_dset);
-  H5Fclose(file_id);
+  free_loaded(&load);
+  free(x_mean);
+  free(y_mean);
   H5Fclose(file_id_2);
+
   return 0;
-//  H5Dread (last, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,  &readBuf[0]);
 }
