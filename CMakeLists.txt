@@ -9,6 +9,15 @@ add_executable(
        heat.c
 
 )
+
+add_executable(
+       mean
+       mean.c
+
+)
+
 target_include_directories(heat PUBLIC ${MPI_INCLUDE_PATH} ${HDF5_INCLUDE_DIRS})
+target_include_directories(mean PUBLIC ${MPI_INCLUDE_PATH} ${HDF5_INCLUDE_DIRS})
 
 target_link_libraries(heat ${MPI_LIBRARIES} ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} m)
+target_link_libraries(mean ${MPI_LIBRARIES} ${HDF5_LIBRARIES} ${HDF5_HL_LIBRARIES} m)

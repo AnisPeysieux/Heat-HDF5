@@ -173,7 +173,7 @@ int save_in_hdf5 (MPI_Comm cart_comm, char* filename, char* previous_name, char*
   assert(previous != NULL);
   assert(last != NULL);
   assert(strcmp(previous_name, last_name) != 0);
-
+  
   //Get dimensions of the communicator
   int dims[2];
   int periods[2];
