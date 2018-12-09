@@ -19,8 +19,8 @@ Compilation:
   et écrit les résultats dans un fichier diags.h5.
   
   * mean crée trois datasets : /mean (scalaire) qui contient la moyenne globale de /last;
-  /x_mean (vecteur de taille 100) qui contient la moyenne selon la première coordonnée et /y_mean 
-  (vecteur de taille 100) qui contient la moyenne selon la deuxième coordonnée.
+  /x_mean qui contient la moyenne de chacune des lignes et /y_mean 
+   qui contient la moyenne de chacune des colonnes.
   
   * derivative calcule la différence de temps entre /previous et /last dans heat.h5. 
   
