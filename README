@@ -1,9 +1,36 @@
+PEYSIEUX ANIS
+SAMIR ZOUHAIR
+MOUKIR SARA
+
 Compilation:
   mkdir build
   cd build
   cmake ..
   make
-Cela creera un executable nomme heat.
 
-Executer avec mpirun, par exemple: mpirun -np 4 ./heat 100 50 50
-Cette execution generera un fichier heat.h5 contenant deux datasets.
+  Cette compilation génère un premier exécutable : 
+  - heat,
+  Ainsi que trois autres exécutables de post traitement :
+  - mean (Moyenne)
+  - derivative (Dérivée)
+  - laplacian (Laplacien)
+  
+  Ces trois derniers extraient les données générées par heat dans heat.h5 , chacun effectue un traitement dessus
+  et écrit les résultats dans un fichier diags.h5.
+  
+  * mean crée trois datasets : /mean (scalaire) qui contient la moyenne globale de /last;
+  /x_mean qui contient la moyenne de chacune des lignes et /y_mean 
+   qui contient la moyenne de chacune des colonnes.
+  
+  * derivative calcule la différence de temps entre /previous et /last dans heat.h5. 
+  
+  * Enfin, laplacian calcule le laplacien en utilisant la fonction iter sur /last (les données de /last 
+  sont écrites dans un tableau, et des mailles y ont été ajoutées pour les calculs sur les bords, 1 000 000 sur le bord gauche et 0 sur les trois autres). 
+
+Executer d'abord heat avec mpirun, par exemple: mpirun -np 4 ./heat 100 100 100
+On génère ainsi heat.h5
+
+Ensuite on execute au choix mean, derivative ou laplacian : 
+- ./mean
+- ./derivative
+- ./laplacian
