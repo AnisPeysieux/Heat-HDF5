@@ -8,6 +8,10 @@
 #include <string.h>
 #include <assert.h>
 
+#define NO_POSTTREATMENT 0
+#define IN_SITU_POSTREATMENT 1
+#define IN_TRANSIT_POSTREATMENT 2
+
 /** A function to initialize the temperature at t=0
  * @param      dsize  size of the local data block (including ghost zones)
  * @param      pcoord position of the local data block in the array of data blocks
@@ -110,6 +114,24 @@ void exchange(MPI_Comm cart_comm, int dsize[2], double cur[dsize[0]][dsize[1]])
 	    cart_comm, &status);
 }
 
+int comp(const void *elem1, const void *elem2)
+{
+  int e1 = *((int*)elem1);
+  int e2 = *((int*)elem2);
+  if(e1 > e2)
+  {
+    return 1;
+  }
+  else if(e2 > e1)
+  {
+    return -1;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
 /** A function to parse command line arguments
  * @param      argc      number of arguments received on the command line
  * @param[in]  argv      values of arguments received on the command line
@@ -117,10 +139,11 @@ void exchange(MPI_Comm cart_comm, int dsize[2], double cur[dsize[0]][dsize[1]])
  * @param[out] dsize     size of the local data block (including ghost zones)
  * @param[out] cart_comm a MPI Cartesian communicator including all processes arranged in grid
  */
-void parse_args( int argc, char *argv[], int *nb_iter, int dsize[2], MPI_Comm *cart_comm )
+void parse_args( int argc, char *argv[], int *nb_iter, int **posttreatment_steps, int *posttreatment_steps_size, int *posttreatment_method, int dsize[2], MPI_Comm *cart_comm )
 {
-	if ( argc != 4 ) {
-		printf("Usage: %s <Nb_iter> <height> <width>\n", argv[0]);
+  if(argc < 6)
+  {
+		printf("Usage: %s <Nb_iter> <height> <width> -output [<n> ...]\n", argv[0]);
 		exit(1);
 	}
 	
@@ -163,9 +186,31 @@ void parse_args( int argc, char *argv[], int *nb_iter, int dsize[2], MPI_Comm *c
     // creation of the communicator
 	int cart_period[2] = { 0, 0 };
 	MPI_Cart_create(MPI_COMM_WORLD, 2, psize, cart_period, 1, cart_comm);
+  
+  *posttreatment_steps = malloc((argc - 5) * sizeof(int));
+  *posttreatment_steps_size = argc - 5;
+  for(int i = 0; i < argc - 5; ++i)
+  {
+    printf("(*posttreatment_steps)[%d] <- argv[%d] = %s\n", i, i + 5, argv[i + 5]);
+    (*posttreatment_steps)[i] = atoi(argv[i + 5]);
+  }
+  *posttreatment_method = NO_POSTTREATMENT;
+  qsort(*posttreatment_steps, argc - 5, sizeof(int), comp);
 }
 
-int save_in_hdf5 (MPI_Comm cart_comm, char* filename, char* previous_name, char* last_name, int dsize[2], int pcoord[2], double(*previous)[], double(*last)[])
+int string_length_int(int n)
+{
+  if(n == 0)
+  {
+    return 0;
+  }
+  if(n < 0)
+    n = -n;
+
+  return log10(n) + 1;
+}
+
+int save_in_hdf5 (MPI_Comm cart_comm, char* filename, int step, char* previous_name, char* last_name, int dsize[2], int pcoord[2], double(*previous)[], double(*last)[])
 {
   assert(filename != NULL);
   assert(previous_name != NULL);
@@ -173,7 +218,8 @@ int save_in_hdf5 (MPI_Comm cart_comm, char* filename, char* previous_name, char*
   assert(previous != NULL);
   assert(last != NULL);
   assert(strcmp(previous_name, last_name) != 0);
-  
+  //printf("save %d\n", step);
+  static int first_access = 1;  
   //Get dimensions of the communicator
   int dims[2];
   int periods[2];
@@ -183,64 +229,118 @@ int save_in_hdf5 (MPI_Comm cart_comm, char* filename, char* previous_name, char*
   //Create access properties
   hid_t plist_id_1 = H5Pcreate(H5P_FILE_ACCESS);
   if(plist_id_1 == -1) { return -1; }
-  if(H5Pset_fapl_mpio(plist_id_1, MPI_COMM_WORLD, MPI_INFO_NULL) < 0) { return -1; }
+  if(H5Pset_fapl_mpio(plist_id_1, MPI_COMM_WORLD, MPI_INFO_NULL) < 0) { return -2; }
 
   //Create write properties
   hid_t plist_id_2 = H5Pcreate(H5P_DATASET_XFER);
-  if(plist_id_2 == -1) { return -1; }
-  if(H5Pset_dxpl_mpio(plist_id_2, H5FD_MPIO_COLLECTIVE) < 0) { return -1; }
+  if(plist_id_2 == -1) { return -3; }
+  if(H5Pset_dxpl_mpio(plist_id_2, H5FD_MPIO_COLLECTIVE) < 0) { return -4; }
   
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
   //Create file
-  hid_t snapshot_file_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, plist_id_1);
-  if(snapshot_file_id < 0) { return -1; }
-
+  hid_t snapshot_file_id;
+  if(first_access)
+  {
+    snapshot_file_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, plist_id_1);
+    first_access = 0;
+  }
+  else
+  {
+    snapshot_file_id = H5Fopen(filename, H5F_ACC_RDWR, plist_id_1);
+    if(snapshot_file_id < 0) { return -5; }
+  }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
   //Computing dataspace sizes
   hsize_t dims_file[2] = {(dsize[0] - 2) * dims[0], (dsize[1] - 2) * dims[1]};
   hsize_t dims_mem[2] = {dsize[0], dsize[1]};
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
   //Create dataspaces
-  hid_t dataspace_file = H5Screate_simple(2, dims_file, NULL); if(dataspace_file < 0) { return -1; }
-  hid_t dataspace_mem = H5Screate_simple(2, dims_mem, NULL); if(dataspace_mem < 0) { return -1; }
+  hid_t dataspace_file = H5Screate_simple(2, dims_file, NULL); if(dataspace_file < 0) { return -6; }
+  hid_t dataspace_mem = H5Screate_simple(2, dims_mem, NULL); if(dataspace_mem < 0) { return -7; }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
 
   //Computing slabs area
   hsize_t start_mem[2] = {1, 1};
   hsize_t count_mem[2] = {dsize[0] - 2, dsize[1] - 2};
-  hsize_t start_file[2] = {pcoord[0] * (dsize[0] - 2), pcoord[1] * (dsize[0] - 2)};
+  hsize_t start_file[2] = {pcoord[0] * (dsize[0] - 2), pcoord[1] * (dsize[1] - 2)};
   hsize_t count_file[2] = {dsize[0] - 2, dsize[1] - 2};
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
   //Create slabs
-  if(H5Sselect_hyperslab(dataspace_mem, H5S_SELECT_SET, start_mem, NULL, count_mem, NULL) < 0) { return -1; }  
-  if(H5Sselect_hyperslab(dataspace_file, H5S_SELECT_SET, start_file, NULL, count_file, NULL) < 0) { return -1; }
+  if(H5Sselect_hyperslab(dataspace_mem, H5S_SELECT_SET, start_mem, NULL, count_mem, NULL) < 0) { return -8; }  
+  if(H5Sselect_hyperslab(dataspace_file, H5S_SELECT_SET, start_file, NULL, count_file, NULL) < 0) { return -9; }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
+  //fprintf(stderr, "dsize[0] = %d, dsize[1] = %d, pcoord[0] = %d, pcoord[1] = %d, start_mem[0] = %lld, start_mem[1] = %lld, count_mem[0] = %lld, count_mem[1] = %lld, start_file[0] = %lld, start_file[1] = %lld, count_file[0] = %lld, count_file[1] = %lld",
+  //        dsize[0], dsize[1], pcoord[0], pcoord[1], start_mem[0], start_mem[1], count_mem[0], count_mem[1], start_file[0], start_file[1], count_file[0], count_file[1]);
 
+  //Compute size of /<iter>/<name>
+  
   //Creating datasets
-  hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  if(dataset_previous < 0) { return -1; }
-  hid_t dataset_last = H5Dcreate(snapshot_file_id, last_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  if(dataset_last < 0) { return -1; }
+  
+  int str_length_step = string_length_int(step);
+  int length_previous_path = 1 + str_length_step + 1 + strlen(previous_name) + 1;
+  int length_last_path = 1 + str_length_step + strlen(previous_name) + 1;
+  int length_group_path = 1 + str_length_step + 1;
+  char* previous_path = malloc (length_previous_path * sizeof(char));
+  char* last_path = malloc(length_last_path * sizeof(char));
+  char* group_path = malloc(length_group_path * sizeof(char));
+  snprintf(previous_path, length_previous_path, "/%d/%s", step, previous_name);
+  snprintf(last_path, length_last_path, "/%d/%s", step, last_name);
+  snprintf(group_path, length_last_path, "/%d", step);
+
+  hid_t gcpl = H5Pcreate (H5P_LINK_CREATE);
+  hid_t group = H5Gcreate (snapshot_file_id, group_path, gcpl, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_path, H5T_NATIVE_DOUBLE, dataspace_file, gcpl, H5P_DEFAULT, H5P_DEFAULT);
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
+  //hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  //fprintf(stderr, "previous_name:%s\n", previous_name);
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
+  if(dataset_previous < 0) { return -10; }
+  hid_t dataset_last = H5Dcreate(snapshot_file_id, last_path, H5T_NATIVE_DOUBLE, dataspace_file, gcpl, H5P_DEFAULT, H5P_DEFAULT);
+  //hid_t dataset_last = H5Dcreate(snapshot_file_id, last_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
+  if(dataset_last < 0) { return -11; }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
 
   //Writing in datasets
-  if(H5Dwrite(dataset_previous, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, previous) < 0) { return -1; }
-  if(H5Dwrite(dataset_last, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, last) < 0) { return -1; }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
+  if(H5Dwrite(dataset_previous, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, previous) < 0) { return -12; }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
+  if(H5Dwrite(dataset_last, H5T_NATIVE_DOUBLE, dataspace_mem, dataspace_file, plist_id_2, last) < 0) { return -13; }
+  //fprintf(stderr,"LINE: %d\n", __LINE__);
 
   //Closing ressources
-  if(H5Sclose(dataspace_file) < 0) { return -1; }
-  if(H5Sclose(dataspace_mem) < 0) { return -1; }
-  if(H5Dclose(dataset_previous) < 0) { return -1; }
-  if(H5Dclose(dataset_last) < 0) { return -1; }
-  if(H5Fclose(snapshot_file_id) < 0) { return -1; }
+  if(H5Pclose (gcpl) < 0) { return -14; }
+  if(H5Gclose (group) < 0) { return -15; }
+  if(H5Sclose(dataspace_file) < 0) { return -16; }
+  if(H5Sclose(dataspace_mem) < 0) { return -17; }
+  if(H5Dclose(dataset_previous) < 0) { return -18; }
+  if(H5Dclose(dataset_last) < 0) { return -19; }
+  if(H5Fclose(snapshot_file_id) < 0) { return -20; }
 
   return 0;
 }
 
+int next_step = 0;
 int main( int argc, char* argv[] )
 {
 	// initialize the MPI library
 	MPI_Init(&argc, &argv);
 	
 	// parse the command line arguments
-    int nb_iter;
+  int nb_iter;
 	int dsize[2];
+  int *posttreatment_steps;
+  int posttreatment_steps_size;
+  int posttreatment_method;
     MPI_Comm cart_comm;
-	parse_args(argc, argv, &nb_iter, dsize, &cart_comm);
-	
+	parse_args(argc, argv, &nb_iter, &posttreatment_steps, &posttreatment_steps_size, &posttreatment_method, dsize, &cart_comm);
+	printf("posttreatment_steps_size = %d\n", posttreatment_steps_size);
+  for(int i = 0; i < posttreatment_steps_size; ++i)
+  {
+    printf("step %d = %d\n",i,  posttreatment_steps[i]);
+  }
+  printf("posttreatment_method = %d\n", posttreatment_method);
+  printf("nb_iter = %d\n", nb_iter);
     // find the coordinate of the 
 	int pcoord_1d; MPI_Comm_rank(MPI_COMM_WORLD, &pcoord_1d);
 	int pcoord[2]; MPI_Cart_coords(cart_comm, pcoord_1d, 2, pcoord);
@@ -262,13 +362,18 @@ int main( int argc, char* argv[] )
 		exchange(cart_comm, dsize, next);
         // switch the current and next buffers
 		double (*tmp)[dsize[1]] = cur; cur = next; next = tmp;
+    if(next_step < posttreatment_steps_size && ii == (posttreatment_steps[next_step]))
+    {
+      int errcode = save_in_hdf5 (cart_comm, "heat.h5", posttreatment_steps[next_step], "previous", "last", dsize, pcoord, next, cur);
+      if(errcode < 0)
+      {
+        fprintf(stderr, "Error during save: error code %d\n", errcode);
+        exit(EXIT_FAILURE);
+      }
+      next_step++;
+    }
 	}
 
-  if(save_in_hdf5 (cart_comm, "heat.h5", "previous", "last", dsize, pcoord, next, cur) == -1)
-  {
-    fprintf(stderr, "Error during save\n");
-    exit(EXIT_FAILURE);
-  }
 
 	// free memory
 	free(cur);
