@@ -17,7 +17,6 @@ int sum_heatdatas(heatdatas_t* heatdatas, double* global_sum)
   hdsize_t n_local_rows;
   hdsize_t n_global_cols;
   hdsize_t n_global_rows;
-  
   heatdatas_n_local_cols(heatdatas, &n_local_cols);
   heatdatas_n_local_rows(heatdatas, &n_local_rows);
   heatdatas_n_global_cols(heatdatas, &n_global_cols);
@@ -73,7 +72,7 @@ int sum_dim_heatdatas(heatdatas_t* heatdatas, double* global_sum, int dim)
   else
   {
     heatdatas_comm_cols(heatdatas, &comm);
-    heatdatas_rank_row(heatdatas, &rank_dim);
+    heatdatas_rank_col(heatdatas, &rank_dim);
     n_global_dim = n_global_cols;
     n_local_other_dim = n_local_rows;
   }
@@ -95,9 +94,8 @@ int sum_dim_heatdatas(heatdatas_t* heatdatas, double* global_sum, int dim)
       }
     }
   }
-    MPI_Reduce(local_sum, global_sum, n_local_other_dim, MPI_DOUBLE, MPI_SUM, 0, heatdatas->comm_dims[dim]);
-      //if(dim == 0 && heatdatas->ranks_dims[dim] == 0)
-      if(heatdatas->ranks_dims[dim] == 0)
+    MPI_Reduce(local_sum, global_sum, n_local_other_dim, MPI_DOUBLE, MPI_SUM, 0, comm);
+      if(rank_dim == 0)
       {
         for(int i = 0; i < n_local_other_dim; ++i)
         {
@@ -128,29 +126,33 @@ int main(int argc, char** argv)
   
   new_file(output_filename);
 
-  for(int i = 0; i < steps.size; ++i)
+  int n_steps;
+  steps_size(&steps, &n_steps);
+  for(int i = 0; i < n_steps; ++i)
   {
+    int step;
+    steps_get(&steps, i, &step);
   
-    int str_length_step = string_length_int(steps.steps[i]);
+    int str_length_step = string_length_int(step);
     int length_step_path = 1 + str_length_step + 1;
     char* step_path = malloc(length_step_path * sizeof(char));
-    snprintf(step_path, length_step_path, "/%d", steps.steps[i]);
+    snprintf(step_path, length_step_path, "/%d", step);
 
     int length_last_path = 1 + str_length_step + 1 + strlen("last") + 1;
     char* last_path = malloc(length_last_path * sizeof(char));
-    snprintf(last_path, length_last_path, "/%d/%s", steps.steps[i], "last");
+    snprintf(last_path, length_last_path, "/%d/%s", step, "last");
     
     int length_x_mean_path = 1 + str_length_step + 1 + strlen("x_mean") + 1;
     char* x_mean_path = malloc(length_x_mean_path * sizeof(char));
-    snprintf(x_mean_path, length_x_mean_path, "/%d/%s", steps.steps[i], "x_mean");
+    snprintf(x_mean_path, length_x_mean_path, "/%d/%s", step, "x_mean");
     
     int length_y_mean_path = 1 + str_length_step + 1 + strlen("y_mean") + 1;
     char* y_mean_path = malloc(length_y_mean_path * sizeof(char));
-    snprintf(y_mean_path, length_y_mean_path, "/%d/%s", steps.steps[i], "y_mean");
+    snprintf(y_mean_path, length_y_mean_path, "/%d/%s", step, "y_mean");
     
     int length_mean_path = 1 + str_length_step + 1 + strlen("mean") + 1;
     char* mean_path = malloc(length_mean_path * sizeof(char));
-    snprintf(mean_path, length_mean_path, "/%d/%s", steps.steps[i], "mean");
+    snprintf(mean_path, length_mean_path, "/%d/%s", step, "mean");
 
     heatdatas_t heatdatas;
     int err_read = heatdatas_load_dims(&heatdatas, input_filename, last_path);
@@ -196,8 +198,6 @@ int main(int argc, char** argv)
     sum_dim_heatdatas(&heatdatas, global_sum_rows, 0);
     sum_dim_heatdatas(&heatdatas, global_sum_cols, 1);
 
-    int step;
-    steps_get(&steps, i, &step);
     new_step(step, output_filename, MPI_COMM_WORLD);
 
     if(rank_row == 0)

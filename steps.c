@@ -15,6 +15,12 @@ int steps_get(steps_t* steps, int n, int* out)
   return 0;
 }
 
+int steps_size(steps_t* steps, int* size)
+{
+  *size = steps->size;
+  return 0;
+}
+
 herr_t step_iteration(hid_t g_id, const char *name, const H5L_info_t *info, void *op_data)
 {
   assert(op_data != NULL);

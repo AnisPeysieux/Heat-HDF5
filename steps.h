@@ -15,6 +15,7 @@ typedef struct steps_s steps_t;
 
 void steps_init(steps_t* steps);
 int steps_get(steps_t* steps, int n, int* out);
+int steps_size(steps_t* steps, int* size);
 herr_t step_iteration(hid_t g_id, const char *name, const H5L_info_t *info, void *op_data);
 int steps_load(char* filename, steps_t* steps);
 
