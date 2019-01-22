@@ -288,15 +288,15 @@ int save_in_hdf5 (MPI_Comm cart_comm, char* filename, int step, char* previous_n
   snprintf(group_path, length_last_path, "/%d", step);
 
   hid_t gcpl = H5Pcreate (H5P_LINK_CREATE);
-  hid_t group = H5Gcreate (snapshot_file_id, group_path, gcpl, H5P_DEFAULT, H5P_DEFAULT);
-  hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_path, H5T_NATIVE_DOUBLE, dataspace_file, gcpl, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t group = H5Gcreate (snapshot_file_id, group_path, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  //hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_path, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   //fprintf(stderr,"LINE: %d\n", __LINE__);
-  //hid_t dataset_previous = H5Dcreate(snapshot_file_id, previous_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t dataset_previous = H5Dcreate(group, previous_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   //fprintf(stderr, "previous_name:%s\n", previous_name);
   //fprintf(stderr,"LINE: %d\n", __LINE__);
   if(dataset_previous < 0) { return -10; }
-  hid_t dataset_last = H5Dcreate(snapshot_file_id, last_path, H5T_NATIVE_DOUBLE, dataspace_file, gcpl, H5P_DEFAULT, H5P_DEFAULT);
-  //hid_t dataset_last = H5Dcreate(snapshot_file_id, last_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  //hid_t dataset_last = H5Dcreate(snapshot_file_id, last_path, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  hid_t dataset_last = H5Dcreate(group, last_name, H5T_NATIVE_DOUBLE, dataspace_file, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   //fprintf(stderr,"LINE: %d\n", __LINE__);
   if(dataset_last < 0) { return -11; }
   //fprintf(stderr,"LINE: %d\n", __LINE__);
