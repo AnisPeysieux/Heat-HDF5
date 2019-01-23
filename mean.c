@@ -34,10 +34,10 @@ int sum_heatdatas(heatdatas_t* heatdatas, double* global_sum)
     }
   }
   
-  double gsum = 0;
+  //double gsum = 0;
   MPI_Reduce(&sum, global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
   *global_sum = *global_sum / (n_global_rows*n_global_cols);
-  fprintf(stderr, "##rank %d, sum = %f, global_sum = %f\n", rank, sum, gsum);
+  //fprintf(stderr, "##rank %d, sum = %f, global_sum = %f\n", rank, sum, gsum);
   return 0;
 }
 
@@ -162,12 +162,16 @@ int main(int argc, char** argv)
       exit(EXIT_FAILURE);
     }
     heatdatas_distribute(&heatdatas);
-    err_read = heatdatas_load_dataset(&heatdatas, input_filename, last_path);
+    hdsize_t margins[4] = {0, 0, 0, 0};
+    err_read = heatdatas_load_dataset(&heatdatas, input_filename, last_path, margins);
     if(err_read != 0)
     {
       fprintf(stderr, "Error in read_dataset_known_dims_hdf5: return %d instead of 0\n", err_read);
       exit(EXIT_FAILURE);
     }
+
+    if(rank_comm_world == 0)
+      heatdatas_fprint(&heatdatas, stderr);
 
     int rank_row;
     heatdatas_rank_row(&heatdatas, &rank_row);

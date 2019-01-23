@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <hdf5.h>
 #include <math.h>
+#include <utils.h>
 
 int heatdatas_n_local_rows(heatdatas_t* heatdatas, hdsize_t* nrows)
 {
@@ -159,7 +160,8 @@ int heatdatas_distribute(heatdatas_t* heatdatas)
   return 0; 
 }
 
-int heatdatas_load_dataset(heatdatas_t* heatdatas, char* filename, char* dataset_name)
+//margin: {up, left, down, right}
+int heatdatas_load_dataset(heatdatas_t* heatdatas, char* filename, char* dataset_name, hdsize_t margins[4])
 {
   int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   hid_t file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT); if(file_id < 0) { return -1; }
@@ -167,8 +169,17 @@ int heatdatas_load_dataset(heatdatas_t* heatdatas, char* filename, char* dataset
   hid_t dspace = H5Dget_space(dset); if(dspace < 0) { return -3; }
   if(H5Sselect_hyperslab(dspace, H5S_SELECT_SET, heatdatas->offsets, NULL, heatdatas->local_dims, NULL) < 0) { return -4; }
   //if(H5Sget_simple_extent_dims(dspace, heatdatas -> dims, NULL) < 0) { return -6; }
-	heatdatas -> buf  = malloc(sizeof(double)*heatdatas->local_dims[1]*heatdatas->local_dims[0]); if(heatdatas -> buf == NULL) { return -7; }
-  hid_t dataspace_mem = H5Screate_simple(2, heatdatas->local_dims, NULL); if(dataspace_mem < 0) { return -5; }
+	heatdatas -> buf  = malloc(sizeof(double)*(heatdatas->local_dims[1] + margins[1] + margins[3])*(heatdatas->local_dims[0] + margins[0] + margins[2])); if(heatdatas -> buf == NULL) { return -7; }
+  hsize_t mem_size[2];
+  mem_size[0] = heatdatas->local_dims[0] + margins[0] + margins[2];
+  mem_size[1] = heatdatas->local_dims[1] + margins[1] + margins[3];
+  hid_t dataspace_mem = H5Screate_simple(2, mem_size, NULL); if(dataspace_mem < 0) { return -5; }
+  //hid_t dataspace_mem = H5Screate_simple(2, heatdatas->local_dims, NULL); if(dataspace_mem < 0) { return -5; }
+  H5Sselect_hyperslab(dataspace_mem, H5S_SELECT_SET, margins, NULL, heatdatas->local_dims, NULL);
+  heatdatas->margins[0] = margins[0];
+  heatdatas->margins[1] = margins[1];
+  heatdatas->margins[2] = margins[2];
+  heatdatas->margins[3] = margins[3];
   if(H5Dread(dset, H5T_NATIVE_DOUBLE, dataspace_mem, dspace, H5P_DEFAULT, heatdatas -> buf) < 0) {return -8; }
   if(H5Dclose(dset) < 0) { return -9; }
   if(H5Fclose(file_id) < 0) { return -10; }
@@ -176,4 +187,53 @@ int heatdatas_load_dataset(heatdatas_t* heatdatas, char* filename, char* dataset
   return 0;
 }
 
+int heatdatas_fprint(heatdatas_t* heatdatas, FILE* out)
+{
+  fprintf(out, "(%lld/%lld) * (%lld/%lld)\n", heatdatas->local_dims[0], heatdatas->global_dims[0], heatdatas->local_dims[1], heatdatas->global_dims[1]);
+  fprintf(out, "First row: %lld, first column: %lld\n", heatdatas->offsets[0], heatdatas->offsets[1]);
+  fprintf(out, "Ranks: row %d, column %d\n", heatdatas->ranks_dims[0], heatdatas->ranks_dims[1]);
+  fprintf(out, "Margin up: %lld down: %lld left: %lld, right: %lld\n", heatdatas->margins[0], heatdatas->margins[2], heatdatas->margins[1], heatdatas->margins[3]);
+
+  double (*buf) [heatdatas->local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3]] = heatdatas->buf;
+  for(int row = 0; row < heatdatas->local_dims[0] + heatdatas->margins[0] + heatdatas->margins[2]; ++row)
+  {
+//    if(row == heatdatas->margins[0])
+//    {
+//      int width = string_length_int(buf[row][heatdatas->margins[0]]) + (heatdatas->local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3]) * 12 + 10;
+//      //for(int col = 0; col < heatdatas -> local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3]; ++col)
+//      for(int col = 0; col < width; ++col)
+//      {
+//        fprintf(out, "-");
+//      }
+//      fprintf(out, "\n");
+//    }
+    for(int col = 0; col < heatdatas -> local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3]; ++col)
+    {
+//      if(col == heatdatas->margins[1])
+//      {
+//        fprintf(out, "|\t");
+//      }
+      fprintf(out, "%.5f\t\t", buf[row][col]);
+//      if(col == heatdatas -> local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3] - 1)
+//      {
+//        fprintf(out, "|\t");
+//      }
+    }
+    fprintf(out, "\n");
+
+//    if(row == heatdatas -> local_dims[0] + heatdatas->margins[0] + heatdatas->margins[2] - 1)
+//    {
+//      int width = string_length_int(buf[row][heatdatas->margins[0]]) + (heatdatas->local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3]) * 12 + 10;
+//      //for(int col = 0; col < heatdatas -> local_dims[1] + heatdatas->margins[1] + heatdatas->margins[3]; ++col)
+//      for(int col = 0; col < width; ++col)
+//      {
+//        fprintf(out, "-");
+//      }
+//      fprintf(out, "\n");
+//    }
+
+
+  }
+  return 0;
+}
 
