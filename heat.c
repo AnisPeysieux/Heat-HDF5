@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <heatdatas.h>
 
 #define NO_POSTTREATMENT 0
 #define IN_SITU_POSTREATMENT 1
@@ -334,15 +335,16 @@ int main( int argc, char* argv[] )
   int posttreatment_method;
     MPI_Comm cart_comm;
 	parse_args(argc, argv, &nb_iter, &posttreatment_steps, &posttreatment_steps_size, &posttreatment_method, dsize, &cart_comm);
-	printf("posttreatment_steps_size = %d\n", posttreatment_steps_size);
-  for(int i = 0; i < posttreatment_steps_size; ++i)
-  {
-    printf("step %d = %d\n",i,  posttreatment_steps[i]);
-  }
-  printf("posttreatment_method = %d\n", posttreatment_method);
-  printf("nb_iter = %d\n", nb_iter);
+//	printf("posttreatment_steps_size = %d\n", posttreatment_steps_size);
+//  for(int i = 0; i < posttreatment_steps_size; ++i)
+//  {
+//    printf("step %d = %d\n",i,  posttreatment_steps[i]);
+//  }
+//  printf("posttreatment_method = %d\n", posttreatment_method);
+//  printf("nb_iter = %d\n", nb_iter);
     // find the coordinate of the 
 	int pcoord_1d; MPI_Comm_rank(MPI_COMM_WORLD, &pcoord_1d);
+	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	int pcoord[2]; MPI_Cart_coords(cart_comm, pcoord_1d, 2, pcoord);
   
   // allocate data for the current iteration
@@ -353,7 +355,26 @@ int main( int argc, char* argv[] )
 	// allocate data for the next iteration
 	double(*next)[dsize[1]] = malloc(sizeof(double)*dsize[1]*dsize[0]);
 	
+  fprintf(stderr, "rank %d, pcoord={%d, %d} dsize={%d, %d}\n", rank, pcoord[0], pcoord[1], dsize[0], dsize[1]);
 	// the main (time) iteration
+  heatdatas_t heatdatas;
+  int dsize2[2];
+  dsize2[0] = atoi(argv[2]);
+  dsize2[1] = atoi(argv[3]);
+  //heatdatas_distribute_from_MPI_Cart(&heatdatas, cart_comm, dsize2);
+  heatdatas_set_comm_from_MPI_Cart(&heatdatas, cart_comm);
+  heatdatas_set_n_local_rows(&heatdatas, dsize[0]-2);
+  heatdatas_set_n_local_cols(& heatdatas, dsize[1]-2);
+  heatdatas_set_n_global_rows(&heatdatas, dsize2[0]);
+  heatdatas_set_n_global_cols(&heatdatas, dsize2[1]);
+  heatdatas_set_offset_rows(&heatdatas, pcoord[0] * (dsize[0] - 2));
+  heatdatas_set_offset_cols(&heatdatas, pcoord[1] * (dsize[1] - 2));
+  int margins[4] = {1, 1, 1, 1};
+  heatdatas_set_margins(&heatdatas, margins);
+  
+  fprintf(stderr, "\x1B[31m  rank %d, pcoord = {%d, %d} dsize = {%d, %d} \x1B[0m  \nlocal_dims = {%lld, %lld}, global_dims = {%lld, %lld}, offsets = {%lld, %lld}, rank_dims = {%d, %d}, margins = {%lld, %lld, %lld, %lld}\n",
+          rank, pcoord[0], pcoord[1], dsize[0], dsize[1],
+          heatdatas.local_dims[0], heatdatas.local_dims[1], heatdatas.global_dims[0], heatdatas.global_dims[1], heatdatas.offsets[0], heatdatas.offsets[1], heatdatas.ranks_dims[0], heatdatas.ranks_dims[1], heatdatas.margins[0], heatdatas.margins[1], heatdatas.margins[2], heatdatas.margins[3]);
 	for (int ii=0; ii<nb_iter; ++ii) {
 		// compute the temperature at the next iteration
 		iter(dsize, cur, next);

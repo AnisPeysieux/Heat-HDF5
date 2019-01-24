@@ -70,6 +70,52 @@ int heatdatas_buf(heatdatas_t* heatdatas, void** buf)
   return 0;
 }
 
+int heatdatas_set_n_local_rows(heatdatas_t* heatdatas, hdsize_t nrows)
+{
+  heatdatas -> local_dims[0] = nrows;
+  return 0;
+}
+
+int heatdatas_set_n_local_cols(heatdatas_t* heatdatas, hdsize_t ncols)
+{
+  heatdatas -> local_dims[1] = ncols;
+  return 0;
+}
+
+int heatdatas_set_n_global_rows(heatdatas_t* heatdatas, hdsize_t nrows)
+{
+  heatdatas -> global_dims[0] = nrows;
+  return 0;
+}
+
+int heatdatas_set_n_global_cols(heatdatas_t* heatdatas, hdsize_t ncols)
+{
+  heatdatas -> global_dims[1] = ncols;
+  return 0;
+}
+
+int heatdatas_set_offset_rows(heatdatas_t* heatdatas, hdsize_t offset_rows)
+{
+  heatdatas -> offsets[0] = offset_rows;
+  return 0;
+}
+
+int heatdatas_set_offset_cols(heatdatas_t* heatdatas, hdsize_t offset_cols)
+{
+  heatdatas -> offsets[1] = offset_cols;
+  return 0;
+}
+
+int heatdatas_set_margins(heatdatas_t* heatdatas, int margins[4])
+{
+  heatdatas -> margins[0] = margins[0];
+  heatdatas -> margins[1] = margins[1];
+  heatdatas -> margins[2] = margins[2];
+  heatdatas -> margins[3] = margins[3];
+  
+  return 0;
+}
+
 int heatdatas_load_dims(heatdatas_t* heatdatas, char* filename, char* dataset_name)
 {
   hid_t file_id = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT); if(file_id < 0) { return -1; }
@@ -156,6 +202,26 @@ int heatdatas_distribute(heatdatas_t* heatdatas)
   MPI_Comm_split(MPI_COMM_WORLD, row_rank, 0, &(heatdatas->comm_dims[1]));
   MPI_Comm_rank(heatdatas->comm_dims[0], &(heatdatas->ranks_dims[0]));
   MPI_Comm_rank(heatdatas->comm_dims[1], &(heatdatas->ranks_dims[1]));
+
+  return 0; 
+}
+
+int heatdatas_set_comm_from_MPI_Cart(heatdatas_t* heatdatas, MPI_Comm cart_comm) 
+{
+  int rank_comm_world; 
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank_comm_world);
+	int pcoord[2]; MPI_Cart_coords(cart_comm, rank_comm_world, 2, pcoord);
+  int dims[2];
+  int coords[2];
+  int periods[2];
+  MPI_Cart_get(cart_comm, 2, dims, periods, coords);
+  heatdatas->ranks_dims[0] = pcoord[0];
+  heatdatas->ranks_dims[1] = pcoord[1];
+  MPI_Comm_split(MPI_COMM_WORLD, heatdatas->ranks_dims[1], heatdatas->ranks_dims[0], &(heatdatas->comm_dims[0]));
+  MPI_Comm_split(MPI_COMM_WORLD, heatdatas->ranks_dims[0], heatdatas->ranks_dims[1], &(heatdatas->comm_dims[1]));
+  MPI_Comm_rank(heatdatas->comm_dims[0], &(heatdatas->ranks_dims[0]));
+  MPI_Comm_rank(heatdatas->comm_dims[1], &(heatdatas->ranks_dims[1]));
+
 
   return 0; 
 }
